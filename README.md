@@ -2,6 +2,8 @@
 
 Web-App zum Planen und Erfassen von Trainings. Gebaut mit Next.js, TypeScript, Tailwind und Supabase.
 
+- **Startseite:** heutiges Datum, was heute im Plan steht, Wochenfortschritt, wichtigste Kennzahlen,
+  Diagramme und ein motivierender Spruch des Tages.
 - **Trainingsplan:** Kalender mit Tag-, Wochen- und Monatsansicht. Trainings einplanen (auch wöchentlich
   wiederkehrend) und mit einem Klick starten oder nachtragen.
 - **Workouts:** Push-Day, Pull-Day, Leg-Day oder Cardio. Grundübungen zum Anklicken, eigene Übungen pro Nutzer.

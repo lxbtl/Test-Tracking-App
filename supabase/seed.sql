@@ -149,6 +149,12 @@ begin
       end if;
     end loop;
 
+    -- Damit die Startseite etwas zeigt: heute immer ein Training einplanen, falls keins geplant ist
+    if not exists (select 1 from public.planned_workouts where user_id = usr.id and planned_on = current_date) then
+      insert into public.planned_workouts (user_id, planned_on, workout_type, title, notes)
+      values (usr.id, current_date, 'push', 'Push-Day', 'Fokus auf saubere Technik');
+    end if;
+
     -- Körpergewicht: alle 3 Tage, leichter Abwärtstrend
     insert into public.body_weights (user_id, measured_on, weight_kg)
     select usr.id, g::date,
