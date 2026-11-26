@@ -7,22 +7,21 @@ import { useState } from "react";
 type Props = { isAdmin: boolean; name: string; logout: () => Promise<void> };
 
 const links = [
-  { href: "/", label: "Dashboard" },
+  { href: "/trainingsplan", label: "Trainingsplan" },
   { href: "/workouts", label: "Workouts" },
-  { href: "/cardio", label: "Cardio" },
-  { href: "/gewicht", label: "Gewicht" },
+  { href: "/gesundheit", label: "Gesundheitsdaten" },
 ];
 
 export default function Nav({ isAdmin, name, logout }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const all = isAdmin ? [...links, { href: "/admin", label: "Admin" }] : links;
-  const active = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const active = (href: string) => pathname.startsWith(href);
 
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
-        <Link href="/" className="text-lg font-bold text-emerald-700">FitTrack</Link>
+        <Link href="/trainingsplan" className="text-lg font-bold text-emerald-700">FitTrack</Link>
         <nav className="hidden items-center gap-1 md:flex">
           {all.map((l) => (
             <Link

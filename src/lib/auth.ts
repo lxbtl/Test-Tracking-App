@@ -7,6 +7,7 @@ export type Profile = {
   display_name: string | null;
   role: "user" | "admin";
   early_access: boolean;
+  height_cm: number | null;
   created_at: string;
 };
 

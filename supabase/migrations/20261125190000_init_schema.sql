@@ -12,6 +12,7 @@ create table public.profiles (
   display_name text,
   role text not null default 'user' check (role in ('user', 'admin')),
   early_access boolean not null default false,
+  height_cm numeric(5, 1) check (height_cm between 50 and 250),
   created_at timestamptz not null default now()
 );
 
@@ -22,44 +23,61 @@ create table public.early_access_invites (
   created_at timestamptz not null default now()
 );
 
+-- Übungen: owner_id null = Grundübung (für alle), sonst eigene Übung eines Nutzers.
 create table public.exercises (
   id bigint generated always as identity primary key,
-  name text not null unique,
-  muscle_group text,
-  created_at timestamptz not null default now()
+  name text not null,
+  workout_type text not null check (workout_type in ('push', 'pull', 'leg', 'cardio')),
+  owner_id uuid references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique nulls not distinct (owner_id, workout_type, name)
 );
+create index exercises_owner_idx on public.exercises (owner_id);
 
 create table public.workouts (
   id bigint generated always as identity primary key,
   user_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
   performed_on date not null default current_date,
+  workout_type text not null check (workout_type in ('push', 'pull', 'leg', 'cardio')),
   title text not null,
   notes text,
   created_at timestamptz not null default now()
 );
 create index workouts_user_date_idx on public.workouts (user_id, performed_on desc);
 
+-- Kraft: ein Eintrag pro Satz
 create table public.workout_sets (
   id bigint generated always as identity primary key,
   workout_id bigint not null references public.workouts (id) on delete cascade,
   exercise_id bigint not null references public.exercises (id),
-  set_number int not null check (set_number > 0),
-  reps int not null check (reps > 0),
+  set_number int not null check (set_number between 1 and 10),
+  reps int not null check (reps between 1 and 12),
   weight_kg numeric(6, 2) not null default 0 check (weight_kg >= 0)
 );
 create index workout_sets_workout_idx on public.workout_sets (workout_id);
 
-create table public.cardio_sessions (
+-- Cardio: ein Eintrag pro Übung (z. B. Laufen 30 min, 5 km)
+create table public.workout_cardio (
+  id bigint generated always as identity primary key,
+  workout_id bigint not null references public.workouts (id) on delete cascade,
+  exercise_id bigint not null references public.exercises (id),
+  duration_min int not null check (duration_min > 0),
+  distance_km numeric(6, 2) check (distance_km >= 0)
+);
+create index workout_cardio_workout_idx on public.workout_cardio (workout_id);
+
+-- Trainingsplan: geplante Einheiten im Kalender
+create table public.planned_workouts (
   id bigint generated always as identity primary key,
   user_id uuid not null default auth.uid() references public.profiles (id) on delete cascade,
-  performed_on date not null default current_date,
-  activity text not null,
-  distance_km numeric(6, 2) check (distance_km >= 0),
-  duration_min int not null check (duration_min > 0),
+  planned_on date not null,
+  workout_type text not null check (workout_type in ('push', 'pull', 'leg', 'cardio')),
+  title text not null,
   notes text,
+  completed_workout_id bigint references public.workouts (id) on delete set null,
   created_at timestamptz not null default now()
 );
-create index cardio_user_date_idx on public.cardio_sessions (user_id, performed_on desc);
+create index planned_user_date_idx on public.planned_workouts (user_id, planned_on);
 
 create table public.body_weights (
   id bigint generated always as identity primary key,
@@ -171,7 +189,8 @@ alter table public.early_access_invites enable row level security;
 alter table public.exercises enable row level security;
 alter table public.workouts enable row level security;
 alter table public.workout_sets enable row level security;
-alter table public.cardio_sessions enable row level security;
+alter table public.workout_cardio enable row level security;
+alter table public.planned_workouts enable row level security;
 alter table public.body_weights enable row level security;
 
 -- profiles
@@ -189,14 +208,26 @@ create policy "Admin verwaltet Einladungen" on public.early_access_invites
   using ((select public.is_admin()))
   with check ((select public.is_admin()));
 
--- exercises: alle mit Zugang lesen, Admin verwaltet
-create policy "Übungen lesen mit Zugang" on public.exercises
+-- exercises: Grundübungen + eigene lesen; eigene anlegen/löschen; Admin alles
+create policy "Übungen lesen" on public.exercises
   for select to authenticated
-  using ((select public.has_access()));
-create policy "Admin verwaltet Übungen" on public.exercises
-  for all to authenticated
-  using ((select public.is_admin()))
-  with check ((select public.is_admin()));
+  using (
+    ((select public.has_access()) and (owner_id is null or owner_id = (select auth.uid())))
+    or (select public.is_admin())
+  );
+create policy "Eigene Übungen anlegen" on public.exercises
+  for insert to authenticated
+  with check (
+    (owner_id = (select auth.uid()) and (select public.has_access()))
+    or (select public.is_admin())
+  );
+create policy "Eigene Übungen ändern" on public.exercises
+  for update to authenticated
+  using ((owner_id = (select auth.uid()) and (select public.has_access())) or (select public.is_admin()))
+  with check ((owner_id = (select auth.uid()) and (select public.has_access())) or (select public.is_admin()));
+create policy "Eigene Übungen löschen" on public.exercises
+  for delete to authenticated
+  using ((owner_id = (select auth.uid()) and (select public.has_access())) or (select public.is_admin()));
 
 -- Eigene Daten (mit Zugang) oder Admin
 create policy "Workouts: eigene oder Admin" on public.workouts
@@ -217,7 +248,20 @@ create policy "Sätze: eigene oder Admin" on public.workout_sets
       and ((w.user_id = (select auth.uid()) and (select public.has_access())) or (select public.is_admin()))
   ));
 
-create policy "Cardio: eigene oder Admin" on public.cardio_sessions
+create policy "Cardio: eigene oder Admin" on public.workout_cardio
+  for all to authenticated
+  using (exists (
+    select 1 from public.workouts w
+    where w.id = workout_id
+      and ((w.user_id = (select auth.uid()) and (select public.has_access())) or (select public.is_admin()))
+  ))
+  with check (exists (
+    select 1 from public.workouts w
+    where w.id = workout_id
+      and ((w.user_id = (select auth.uid()) and (select public.has_access())) or (select public.is_admin()))
+  ));
+
+create policy "Trainingsplan: eigene oder Admin" on public.planned_workouts
   for all to authenticated
   using ((user_id = (select auth.uid()) and (select public.has_access())) or (select public.is_admin()))
   with check ((user_id = (select auth.uid()) and (select public.has_access())) or (select public.is_admin()));

@@ -1,18 +1,35 @@
 import { requireAccess } from "@/lib/auth";
+import type { Exercise } from "@/lib/data";
 import { today } from "@/lib/format";
+import { isWorkoutType } from "@/lib/workout-types";
 import WorkoutForm from "./WorkoutForm";
 
-export default async function NewWorkoutPage() {
-  const { supabase } = await requireAccess();
-  const { data: exercises } = await supabase.from("exercises").select("id, name, muscle_group").order("name");
+export default async function NewWorkoutPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ typ?: string; plan?: string; datum?: string }>;
+}) {
+  const sp = await searchParams;
+  const { supabase, profile } = await requireAccess();
+  // Grundübungen + eigene (auch für Admins nur die eigenen, nicht die aller Nutzer)
+  const { data } = await supabase
+    .from("exercises")
+    .select("id, name, workout_type, owner_id")
+    .or(`owner_id.is.null,owner_id.eq.${profile.id}`)
+    .order("owner_id", { nullsFirst: true })
+    .order("id")
+    .returns<Exercise[]>();
+
+  const date = sp.datum && /^\d{4}-\d{2}-\d{2}$/.test(sp.datum) ? sp.datum : today();
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Neues Workout</h1>
-      {exercises && exercises.length > 0 ? (
-        <WorkoutForm exercises={exercises} today={today()} />
-      ) : (
-        <div className="card text-sm text-slate-500">Es sind noch keine Übungen angelegt. Ein Admin kann sie im Admin-Bereich hinzufügen.</div>
-      )}
+      <WorkoutForm
+        exercises={data ?? []}
+        date={date}
+        initialType={isWorkoutType(sp.typ) ? sp.typ : null}
+        planId={Number(sp.plan) || null}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
+import { isWorkoutType } from "@/lib/workout-types";
 
 export async function setEarlyAccess(formData: FormData) {
   const { supabase } = await requireAdmin();
@@ -40,8 +41,10 @@ export async function addExercise(formData: FormData) {
   const { supabase } = await requireAdmin();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
-  const muscle_group = String(formData.get("muscle_group") ?? "").trim() || null;
-  await supabase.from("exercises").insert({ name, muscle_group });
+  const workout_type = String(formData.get("workout_type") ?? "");
+  if (!isWorkoutType(workout_type)) return;
+  // owner_id null = Grundübung für alle Nutzer
+  await supabase.from("exercises").insert({ name, workout_type, owner_id: null });
   revalidatePath("/admin");
 }
 

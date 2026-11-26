@@ -19,7 +19,7 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
           {user.early_access ? "Early Access" : "Warteliste"}
         </p>
       </div>
-      <Dashboard supabase={supabase} userId={user.id} readOnly />
+      <Dashboard supabase={supabase} userId={user.id} heightCm={user.height_cm ? Number(user.height_cm) : null} />
     </div>
   );
 }

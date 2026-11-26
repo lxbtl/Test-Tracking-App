@@ -1,17 +1,18 @@
 import Link from "next/link";
 import { requireAdmin, type Profile } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
+import { TYPE_META, WORKOUT_TYPES, type WorkoutType } from "@/lib/workout-types";
 import { addExercise, addInvite, deleteExercise, removeInvite, setEarlyAccess, setRole } from "./actions";
 
 export default async function AdminPage() {
   const { supabase, profile: me } = await requireAdmin();
 
-  const [profiles, invites, exercises, workouts, cardio, weights, sets] = await Promise.all([
+  const [profiles, invites, exercises, workouts, plans, weights, sets] = await Promise.all([
     supabase.from("profiles").select("*").order("created_at").returns<Profile[]>(),
     supabase.from("early_access_invites").select("*").order("created_at", { ascending: false }),
-    supabase.from("exercises").select("id, name, muscle_group").order("name"),
-    supabase.from("workouts").select("user_id, performed_on"),
-    supabase.from("cardio_sessions").select("user_id"),
+    supabase.from("exercises").select("id, name, workout_type").is("owner_id", null).order("id").returns<{ id: number; name: string; workout_type: WorkoutType }[]>(),
+    supabase.from("workouts").select("user_id, performed_on, workout_type"),
+    supabase.from("planned_workouts").select("user_id").is("completed_workout_id", null),
     supabase.from("body_weights").select("user_id"),
     supabase.from("workout_sets").select("id", { count: "exact", head: true }),
   ]);
@@ -32,7 +33,7 @@ export default async function AdminPage() {
           ["Warteliste", waiting.length],
           ["Workouts", workouts.data?.length ?? 0],
           ["Sätze", sets.count ?? 0],
-          ["Cardio-Einheiten", cardio.data?.length ?? 0],
+          ["Geplante Trainings", plans.data?.length ?? 0],
         ].map(([label, value]) => (
           <div key={label} className="card">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
@@ -46,7 +47,7 @@ export default async function AdminPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Name / E-Mail</th><th>Rolle</th><th>Early Access</th><th>Workouts</th><th>Cardio</th><th>Gewicht</th>
+              <th>Name / E-Mail</th><th>Rolle</th><th>Early Access</th><th>Workouts</th><th>Geplant</th><th>Gewicht</th>
               <th>Zuletzt aktiv</th><th />
             </tr>
           </thead>
@@ -84,7 +85,7 @@ export default async function AdminPage() {
                   </form>
                 </td>
                 <td>{count(workouts.data, u.id)}</td>
-                <td>{count(cardio.data, u.id)}</td>
+                <td>{count(plans.data, u.id)}</td>
                 <td>{count(weights.data, u.id)}</td>
                 <td className="whitespace-nowrap">{lastActive(u.id) ? formatDate(lastActive(u.id)!) : "–"}</td>
                 <td>
@@ -125,10 +126,15 @@ export default async function AdminPage() {
         </section>
 
         <section className="card">
-          <h2 className="mb-3 font-semibold">Übungskatalog</h2>
+          <h2 className="mb-1 font-semibold">Grundübungen</h2>
+          <p className="mb-3 text-xs text-slate-500">Stehen allen Nutzern zur Auswahl. Eigene Übungen legen Nutzer selbst an.</p>
           <form action={addExercise} className="mb-4 flex flex-col gap-2 sm:flex-row">
             <input className="input" name="name" placeholder="Name der Übung" required />
-            <input className="input" name="muscle_group" placeholder="Muskelgruppe" />
+            <select className="input sm:w-40" name="workout_type" defaultValue="push" aria-label="Trainingsart">
+              {WORKOUT_TYPES.map((t) => (
+                <option key={t} value={t}>{TYPE_META[t].label}</option>
+              ))}
+            </select>
             <button className="btn shrink-0">Hinzufügen</button>
           </form>
           <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
@@ -136,7 +142,7 @@ export default async function AdminPage() {
               <li key={e.id} className="flex items-center justify-between py-2 text-sm">
                 <span>
                   {e.name}
-                  {e.muscle_group && <span className="ml-2 text-xs text-slate-500">{e.muscle_group}</span>}
+                  <span className={`ml-2 rounded border px-1.5 text-xs ${TYPE_META[e.workout_type].badge}`}>{TYPE_META[e.workout_type].label}</span>
                 </span>
                 <form action={deleteExercise}>
                   <input type="hidden" name="id" value={e.id} />

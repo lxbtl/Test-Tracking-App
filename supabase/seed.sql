@@ -48,89 +48,111 @@ where email like '%@fitness.local';
 update public.profiles set role = 'admin', early_access = true
 where id = '00000000-0000-0000-0000-00000000a001';
 
--- Übungskatalog
-insert into public.exercises (name, muscle_group) values
-  ('Bankdrücken', 'Brust'),
-  ('Kniebeuge', 'Beine'),
-  ('Kreuzheben', 'Rücken'),
-  ('Schulterdrücken', 'Schultern'),
-  ('Klimmzüge', 'Rücken'),
-  ('Rudern mit Langhantel', 'Rücken'),
-  ('Beinpresse', 'Beine'),
-  ('Bizepscurls', 'Arme'),
-  ('Trizepsdrücken', 'Arme'),
-  ('Ausfallschritte', 'Beine');
+-- Körpergröße für den BMI
+update public.profiles set height_cm = 182 where id = '00000000-0000-0000-0000-00000000a001';
+update public.profiles set height_cm = 168 where id = '00000000-0000-0000-0000-00000000a002';
+update public.profiles set height_cm = 188 where id = '00000000-0000-0000-0000-00000000a003';
 
--- Workouts der letzten 8 Wochen: Mo (Push), Mi (Beine), Fr (Pull)
+-- Grundübungen (für alle Nutzer)
+insert into public.exercises (name, workout_type) values
+  ('Kurzhantel-Bankdrücken', 'push'),
+  ('Bankdrücken', 'push'),
+  ('Butterfly', 'push'),
+  ('Incline Machine', 'push'),
+  ('Klimmzüge', 'pull'),
+  ('Latzug', 'pull'),
+  ('Rudern', 'pull'),
+  ('Beinpresse', 'leg'),
+  ('Beinbeuger', 'leg'),
+  ('Beinstrecker', 'leg'),
+  ('Hackenschmidt-Maschine', 'leg'),
+  ('Laufen', 'cardio'),
+  ('Schnelles Gehen', 'cardio'),
+  ('Schwimmen', 'cardio'),
+  ('Radfahren', 'cardio');
+
+-- Eine eigene Übung von Anna (nur für sie sichtbar)
+insert into public.exercises (name, workout_type, owner_id) values
+  ('Face Pulls', 'pull', '00000000-0000-0000-0000-00000000a002');
+
+-- Trainingshistorie der letzten 8 Wochen + Plan für die nächsten 3 Wochen
+-- Mo Push, Mi Pull, Fr Leg, Sa Cardio
 do $$
 declare
   usr record;
   d date;
   w_id bigint;
   week int;
-  plan text[];
-  ex_name text;
+  wtype text;
+  ex record;
   s int;
   base numeric;
+  cardio_ex text;
 begin
   for usr in
     select * from (values
-      ('00000000-0000-0000-0000-00000000a001'::uuid, 1.0),
-      ('00000000-0000-0000-0000-00000000a002'::uuid, 0.6),
-      ('00000000-0000-0000-0000-00000000a003'::uuid, 1.2)
-    ) as t(id, factor)
+      ('00000000-0000-0000-0000-00000000a001'::uuid, 1.0, 84),
+      ('00000000-0000-0000-0000-00000000a002'::uuid, 0.6, 64),
+      ('00000000-0000-0000-0000-00000000a003'::uuid, 1.2, 92)
+    ) as t(id, factor, start_weight)
   loop
     for d in
-      select g::date from generate_series(current_date - 56, current_date - 1, interval '1 day') g
-      where extract(isodow from g) in (1, 3, 5)
+      select g::date from generate_series(current_date - 56, current_date + 21, interval '1 day') g
+      where extract(isodow from g) in (1, 3, 5, 6)
     loop
       week := (d - (current_date - 56)) / 7;
-      plan := case extract(isodow from d)
-        when 1 then array['Bankdrücken', 'Schulterdrücken', 'Trizepsdrücken']
-        when 3 then array['Kniebeuge', 'Beinpresse', 'Ausfallschritte']
-        else array['Kreuzheben', 'Klimmzüge', 'Rudern mit Langhantel', 'Bizepscurls']
-      end;
+      wtype := case extract(isodow from d) when 1 then 'push' when 3 then 'pull' when 5 then 'leg' else 'cardio' end;
 
-      insert into public.workouts (user_id, performed_on, title, notes)
-      values (
-        usr.id, d,
-        case extract(isodow from d) when 1 then 'Push-Tag' when 3 then 'Beintag' else 'Pull-Tag' end,
-        case when week % 3 = 0 then 'Gutes Training' else null end
-      )
-      returning id into w_id;
+      w_id := null;
+      if d < current_date then
+        insert into public.workouts (user_id, performed_on, workout_type, title, notes)
+        values (
+          usr.id, d, wtype,
+          case wtype when 'push' then 'Push-Day' when 'pull' then 'Pull-Day' when 'leg' then 'Leg-Day' else 'Cardio' end,
+          case when week % 3 = 0 and wtype <> 'cardio' then 'Gutes Training' else null end
+        )
+        returning id into w_id;
 
-      foreach ex_name in array plan loop
-        base := case ex_name
-          when 'Bankdrücken' then 70 when 'Schulterdrücken' then 40 when 'Trizepsdrücken' then 25
-          when 'Kniebeuge' then 90 when 'Beinpresse' then 140 when 'Ausfallschritte' then 20
-          when 'Kreuzheben' then 110 when 'Klimmzüge' then 0 when 'Rudern mit Langhantel' then 60
-          else 14 end;
-        for s in 1..3 loop
-          insert into public.workout_sets (workout_id, exercise_id, set_number, reps, weight_kg)
-          select w_id, e.id, s,
-                 case when ex_name = 'Klimmzüge' then 6 + week / 2 else 10 - s end,
-                 round((base * usr.factor + week * 1.25)::numeric / 1.25) * 1.25
-          from public.exercises e where e.name = ex_name;
-        end loop;
-      end loop;
+        if wtype = 'cardio' then
+          cardio_ex := (array['Laufen', 'Radfahren', 'Schwimmen', 'Schnelles Gehen'])[1 + week % 4];
+          insert into public.workout_cardio (workout_id, exercise_id, duration_min, distance_km)
+          select w_id, e.id,
+                 case cardio_ex when 'Radfahren' then 60 when 'Schwimmen' then 40 else 35 end + (random() * 15)::int,
+                 round((case cardio_ex when 'Laufen' then 5 + random() * 3 when 'Radfahren' then 18 + random() * 12
+                        when 'Schwimmen' then 1 + random() * 0.8 else 3 + random() * 1.5 end)::numeric, 1)
+          from public.exercises e where e.name = cardio_ex and e.owner_id is null;
+        else
+          for ex in select * from public.exercises e where e.workout_type = wtype and e.owner_id is null loop
+            base := case ex.name
+              when 'Kurzhantel-Bankdrücken' then 26 when 'Bankdrücken' then 70 when 'Butterfly' then 45
+              when 'Incline Machine' then 50 when 'Klimmzüge' then 0 when 'Latzug' then 55 when 'Rudern' then 60
+              when 'Beinpresse' then 140 when 'Beinbeuger' then 40 when 'Beinstrecker' then 45
+              else 80 end;
+            for s in 1..4 loop
+              insert into public.workout_sets (workout_id, exercise_id, set_number, reps, weight_kg)
+              values (w_id, ex.id, s,
+                      least(12, case when ex.name = 'Klimmzüge' then 6 + week / 2 else 10 - (s - 1) / 2 end),
+                      round((base * usr.factor + week * 1.25)::numeric / 1.25) * 1.25);
+            end loop;
+          end loop;
+        end if;
+      end if;
+
+      -- Plan: letzte 2 Wochen (erledigt) + nächste 3 Wochen
+      if d >= current_date - 14 then
+        insert into public.planned_workouts (user_id, planned_on, workout_type, title, completed_workout_id)
+        values (
+          usr.id, d, wtype,
+          case wtype when 'push' then 'Push-Day' when 'pull' then 'Pull-Day' when 'leg' then 'Leg-Day' else 'Cardio' end,
+          w_id
+        );
+      end if;
     end loop;
-
-    -- Cardio: Di und Sa
-    insert into public.cardio_sessions (user_id, performed_on, activity, distance_km, duration_min)
-    select usr.id, g::date,
-           case when extract(isodow from g) = 2 then 'Laufen' else 'Radfahren' end,
-           case when extract(isodow from g) = 2
-                then round((4 + random() * 4)::numeric, 1)
-                else round((15 + random() * 20)::numeric, 1) end,
-           case when extract(isodow from g) = 2 then 25 + (random() * 20)::int else 45 + (random() * 40)::int end
-    from generate_series(current_date - 56, current_date - 1, interval '1 day') g
-    where extract(isodow from g) in (2, 6);
 
     -- Körpergewicht: alle 3 Tage, leichter Abwärtstrend
     insert into public.body_weights (user_id, measured_on, weight_kg)
     select usr.id, g::date,
-           round(((case when usr.factor < 1 then 64 when usr.factor > 1 then 92 else 84 end)
-                  -(g::date - (current_date - 57)) * 0.04 + random() * 0.6)::numeric, 1)
+           round((usr.start_weight - (g::date - (current_date - 57)) * 0.04 + random() * 0.6)::numeric, 1)
     from generate_series(current_date - 57, current_date, interval '3 days') g;
   end loop;
 end $$;

@@ -38,10 +38,10 @@ export function WeightChart({ data }: { data: { measured_on: string; weight_kg: 
   );
 }
 
-type Weekly = { week: string; volumen: number; km: number; minuten: number; workouts: number };
+type Weekly = { week: string; volumen: number };
 
 export function VolumeChart({ data }: { data: Weekly[] }) {
-  if (!data.length) return <Empty />;
+  if (!data.some((d) => d.volumen > 0)) return <Empty />;
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ left: -4, right: 8 }}>
@@ -53,24 +53,6 @@ export function VolumeChart({ data }: { data: Weekly[] }) {
           formatter={(v) => [`${de(Number(v))} kg`, "Volumen"]}
         />
         <Bar dataKey="volumen" fill="#059669" radius={[4, 4, 0, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
-export function CardioChart({ data }: { data: Weekly[] }) {
-  if (!data.length) return <Empty />;
-  return (
-    <ResponsiveContainer width="100%" height={220}>
-      <BarChart data={data} margin={{ left: -16, right: 8 }}>
-        <CartesianGrid stroke="#e2e8f0" vertical={false} />
-        <XAxis dataKey="week" tickFormatter={shortDate} tick={{ fontSize: 12 }} />
-        <YAxis tick={{ fontSize: 12 }} />
-        <Tooltip
-          labelFormatter={(l) => `Woche ab ${shortDate(String(l))}`}
-          formatter={(v, name) => (name === "km" ? [`${de(Number(v))} km`, "Distanz"] : [`${v} min`, "Dauer"])}
-        />
-        <Bar dataKey="km" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
